@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Clonador de Google Drive</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script async defer src="https://apis.google.com/js/api.js" onload="gapiLoaded()"></script>
+    <script async defer src="https://accounts.google.com/gsi/client" onload="gisLoaded()"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .btn-disabled {
+            background-color: #9ca3af !important;
+            cursor: not-allowed !important;
+        }
+        #log-output {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800 flex items-center justify-center min-h-screen">
+
+    <div class="container mx-auto p-4 max-w-4xl">
+        <div class="bg-white rounded-xl shadow-lg p-6 md:p-8">
+            <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6">
+                <div>
+                    <h1 class="text-3xl font-bold text-gray-900">Clonador de Google Drive</h1>
+                    <p class="text-gray-500 mt-1">Copia archivos y carpetas a tu Drive sin descargarlos.</p>
+                </div>
+                <div id="auth-container" class="mt-4 md:mt-0">
+                    <!-- El botón de autenticación se insertará aquí -->
+                </div>
+            </div>
+
+            <!-- Sección de Configuración de API -->
+            <div id="api-setup" class="mb-6 p-4 bg-yellow-50 border-l-4 border-yellow-400 text-yellow-700 rounded-md">
+                <h3 class="font-bold">Configuración Requerida</h3>
+                <p class="text-sm">Para usar esta herramienta, necesitas tus propias credenciales de la API de Google. Insértalas en las primeras líneas del código JavaScript de este archivo HTML.</p>
+                <ol class="list-decimal list-inside text-sm mt-2">
+                    <li><a href="https://console.cloud.google.com/projectcreate" target="_blank" class="underline hover:text-yellow-800">Crea un proyecto en Google Cloud</a>.</li>
+                    <li><a href="https://console.cloud.google.com/apis/library/drive.googleapis.com" target="_blank" class="underline hover:text-yellow-800">Activa la API de Google Drive</a> para tu proyecto.</li>
+                    <li><a href="https://console.cloud.google.com/apis/credentials" target="_blank" class="underline hover:text-yellow-800">Crea un "ID de cliente de OAuth 2.0"</a> de tipo "Aplicación web".</li>
+                    <li>En "URI de redireccionamiento autorizados", agrega la URL donde alojarás esta página. Para pruebas locales, puedes usar `http://localhost` y `http://localhost:8000`.</li>
+                    <li>Copia el "ID de cliente" y la "Clave de API" en las variables `CLIENT_ID` y `API_KEY` del script.</li>
+                </ol>
+            </div>
+
+            <!-- Interfaz Principal (deshabilitada hasta iniciar sesión) -->
+            <fieldset id="main-ui" disabled class="space-y-4">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label for="source-url" class="block text-sm font-medium text-gray-700">URL o ID de Origen</label>
+                        <input type="text" id="source-url" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm" placeholder="URL o ID del archivo/carpeta a copiar">
+                    </div>
+                    <div>
+                        <label for="dest-url" class="block text-sm font-medium text-gray-700">URL o ID de Destino (Opcional)</label>
+                        <input type="text" id="dest-url" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm" placeholder="Dejar en blanco para 'Mi Unidad'">
+                    </div>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label for="new-folder-name" class="block text-sm font-medium text-gray-700">Nuevo Nombre de Carpeta (Opcional)</label>
+                        <input type="text" id="new-folder-name" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm" placeholder="Para renombrar la carpeta clonada">
+                    </div>
+                    <div>
+                        <label for="new-file-name" class="block text-sm font-medium text-gray-700">Nuevo Nombre de Archivo (Opcional)</label>
+                        <input type="text" id="new-file-name" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm" placeholder="Para renombrar el archivo copiado">
+                    </div>
+                </div>
+
+                <div class="flex flex-wrap items-center gap-2 pt-2">
+                    <button id="analyze-btn" class="bg-indigo-600 text-white font-semibold py-2 px-4 rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition">Analizar</button>
+                    <button id="copy-btn" class="bg-green-600 text-white font-semibold py-2 px-4 rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition">Copiar a mi Drive</button>
+                    <button id="cancel-btn" class="bg-yellow-500 text-white font-semibold py-2 px-4 rounded-md hover:bg-yellow-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-400 transition">Cancelar</button>
+                    <button id="clear-btn" class="bg-gray-500 text-white font-semibold py-2 px-4 rounded-md hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-400 transition">Limpiar</button>
+                </div>
+            </fieldset>
+
+             <!-- Estado y Progreso -->
+            <div class="mt-6 space-y-3">
+                <div class="flex justify-between items-center text-sm font-medium">
+                    <div id="status-label" class="text-gray-600">Estado: En espera</div>
+                    <div id="type-label" class="text-gray-600">Tipo: —</div>
+                </div>
+                <div class="w-full bg-gray-200 rounded-full h-2.5">
+                    <div id="progress-bar" class="bg-indigo-600 h-2.5 rounded-full" style="width: 0%"></div>
+                </div>
+            </div>
+
+            <!-- Salida de Logs -->
+            <div class="mt-6">
+                <label class="block text-sm font-medium text-gray-700">Registro de Actividad</label>
+                <div id="log-output" class="mt-1 p-3 bg-gray-50 rounded-md border border-gray-200 text-sm font-mono whitespace-pre-wrap"></div>
+            </div>
+
+        </div>
+    </div>
+
+<script type="text/javascript">
+    // =========================================================================
+    // === CONFIGURACIÓN DE API (MODIFICAR ESTOS VALORES) ======================
+    // =========================================================================
+    const CLIENT_ID = '481390538411-sovuarrtd1tpdden2rja59nqbu2khmnf.apps.googleusercontent.com'; // <-- Reemplaza con tu ID de Cliente
+    const API_KEY = 'AIzaSyARXfiSaQ3cIkQKq4_T9mps46M9ohwqFoU';           // <-- Reemplaza con tu Clave de API
+    // =========================================================================
+
+    const DISCOVERY_DOC = 'https://www.googleapis.com/discovery/v1/apis/drive/v3/rest';
+    const SCOPES = 'https://www.googleapis.com/auth/drive';
+
+    const FOLDER_MIME = 'application/vnd.google-apps.folder';
+    const SHORTCUT_MIME = 'application/vnd.google-apps.shortcut';
+
+    let tokenClient;
+    let gapiInited = false;
+    let gisInited = false;
+    let cancelFlag = { stop: false };
+    let isTaskRunning = false;
+    let currentUserEmail = '';
+
+    // Referencias a elementos del DOM
+    const authContainer = document.getElementById('auth-container');
+    const apiSetupDiv = document.getElementById('api-setup');
+    const mainUI = document.getElementById('main-ui');
+    const sourceUrlInput = document.getElementById('source-url');
+    const destUrlInput = document.getElementById('dest-url');
+    const newFolderNameInput = document.getElementById('new-folder-name');
+    const newFileNameInput = document.getElementById('new-file-name');
+    const analyzeBtn = document.getElementById('analyze-btn');
+    const copyBtn = document.getElementById('copy-btn');
+    const cancelBtn = document.getElementById('cancel-btn');
+    const clearBtn = document.getElementById('clear-btn');
+    const statusLabel = document.getElementById('status-label');
+    const typeLabel = document.getElementById('type-label');
+    const progressBar = document.getElementById('progress-bar');
+    const logOutput = document.getElementById('log-output');
+
+    // Inicialización
+    function gapiLoaded() {
+        gapi.load('client', initializeGapiClient);
+    }
+
+    async function initializeGapiClient() {
+        await gapi.client.init({
+            apiKey: API_KEY,
+            discoveryDocs: [DISCOVERY_DOC],
+        });
+        gapiInited = true;
+        maybeEnableButtons();
+    }
+
+    function gisLoaded() {
+        tokenClient = google.accounts.oauth2.initTokenClient({
+            client_id: CLIENT_ID,
+            scope: SCOPES,
+            callback: '', // Se define dinámicamente
+        });
+        gisInited = true;
+        maybeEnableButtons();
+    }
+    
+    function maybeEnableButtons() {
+        if (CLIENT_ID === 'TU_ID_DE_CLIENTE.apps.googleusercontent.com' || API_KEY === 'TU_CLAVE_DE_API') {
+             apiSetupDiv.style.display = 'block';
+        } else {
+             apiSetupDiv.style.display = 'none';
+        }
+
+        if (gapiInited && gisInited) {
+            const signInButton = document.createElement('button');
+            signInButton.id = 'signin-btn';
+            signInButton.className = "bg-blue-500 text-white font-semibold py-2 px-4 rounded-md hover:bg-blue-600 transition";
+            signInButton.innerText = 'Iniciar sesión con Google';
+            signInButton.onclick = handleAuthClick;
+            authContainer.innerHTML = '';
+            authContainer.appendChild(signInButton);
+        }
+    }
+
+    // --- Lógica de Autenticación ---
+    function handleAuthClick() {
+        tokenClient.callback = async (resp) => {
+            if (resp.error !== undefined) {
+                throw (resp);
+            }
+            log('Autenticación exitosa.');
+            await fetchUserProfile();
+            document.getElementById('signin-btn').style.display = 'none';
+            const signOutButton = document.createElement('button');
+            signOutButton.id = 'signout-btn';
+            signOutButton.className = "bg-red-500 text-white font-semibold py-2 px-4 rounded-md hover:bg-red-600 transition";
+            signOutButton.innerText = `Salir (${currentUserEmail})`;
+            signOutButton.onclick = handleSignoutClick;
+            authContainer.appendChild(signOutButton);
+            mainUI.disabled = false;
+        };
+
+        if (gapi.client.getToken() === null) {
+            tokenClient.requestAccessToken({prompt: 'consent'});
+        } else {
+            tokenClient.requestAccessToken({prompt: ''});
+        }
+    }
+    
+    async function fetchUserProfile() {
+        try {
+            const res = await gapi.client.drive.about.get({ fields: 'user' });
+            currentUserEmail = res.result.user.emailAddress;
+        } catch (err) {
+            log('Error al obtener el perfil del usuario: ' + err.message);
+        }
+    }
+
+    function handleSignoutClick() {
+        const token = gapi.client.getToken();
+        if (token !== null) {
+            google.accounts.oauth2.revoke(token.access_token, () => {
+                gapi.client.setToken('');
+                authContainer.innerHTML = '';
+                currentUserEmail = '';
+                maybeEnableButtons();
+                mainUI.disabled = true;
+                log('Sesión cerrada.');
+            });
+        }
+    }
+    
+    // --- Lógica de la UI ---
+    function log(message) {
+        const timestamp = new Date().toLocaleTimeString();
+        logOutput.innerHTML += `[${timestamp}] ${message}\n`;
+        logOutput.scrollTop = logOutput.scrollHeight;
+    }
+
+    function setStatus(text) {
+        statusLabel.innerText = `Estado: ${text}`;
+    }
+
+    function setType(text) {
+        typeLabel.innerText = `Tipo: ${text}`;
+    }
+    
+    function updateProgress(value, max) {
+        const percentage = max > 0 ? (value / max) * 100 : 0;
+        progressBar.style.width = `${percentage}%`;
+    }
+
+    function clearUI() {
+        sourceUrlInput.value = '';
+        destUrlInput.value = '';
+        newFolderNameInput.value = '';
+        newFileNameInput.value = '';
+        setType('—');
+        setStatus('En espera');
+        updateProgress(0, 1);
+        logOutput.innerHTML = '';
+        cancelFlag.stop = false;
+        isTaskRunning = false;
+    }
+
+    // --- Lógica de Google Drive (API) ---
+    function extractId(urlOrId) {
+        if (!urlOrId) return null;
+        const trimmed = urlOrId.trim();
+        const regexes = [
+            /\/file\/d\/([a-zA-Z0-9_-]+)/,
+            /\/folders\/([a-zA-Z0-9_-]+)/,
+            /[?&]id=([a-zA-Z0-9_-]+)/
+        ];
+        for (const regex of regexes) {
+            const match = trimmed.match(regex);
+            if (match) return match[1];
+        }
+        return trimmed;
+    }
+
+    async function waitRetry(func, params) {
+        for (let i = 0; i < 6; i++) {
+            try {
+                return await func(params);
+            } catch (err) {
+                if ([403, 429, 500, 503].includes(err.status)) {
+                    const delay = (Math.pow(2, i) * 1000) + (Math.random() * 1000);
+                    log(`API Rate limit. Reintentando en ${Math.round(delay/1000)}s...`);
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                } else {
+                    throw err;
+                }
+            }
+        }
+        // último intento
+        return await func(params);
+    }
+    
+    async function getFile(fileId, fields = 'id,name,mimeType,shortcutDetails,capabilities(canCopy),owners(emailAddress),driveId') {
+        const res = await waitRetry(gapi.client.drive.files.get, {
+            fileId: fileId,
+            fields: fields,
+            supportsAllDrives: true
+        });
+        return res.result;
+    }
+
+    async function listChildren(folderId) {
+        let children = [];
+        let pageToken = null;
+        do {
+            const res = await waitRetry(gapi.client.drive.files.list, {
+                q: `'${folderId}' in parents and trashed=false`,
+                fields: 'nextPageToken, files(id,name,mimeType)',
+                pageToken: pageToken,
+                supportsAllDrives: true,
+                includeItemsFromAllDrives: true,
+                corpora: 'allDrives'
+            });
+            children = children.concat(res.result.files);
+            pageToken = res.result.nextPageToken;
+        } while (pageToken);
+        return children;
+    }
+    
+    function isSameSpace(srcMeta, destMeta) {
+        if (!srcMeta) return false;
+
+        const srcOwners = (srcMeta.owners || []).map(o => o.emailAddress);
+        if (currentUserEmail && srcOwners.includes(currentUserEmail)) {
+            if (!destMeta) return true; // Destino es Mi Unidad del usuario actual
+            const destOwners = (destMeta.owners || []).map(o => o.emailAddress);
+            if (destOwners.includes(currentUserEmail) && !srcMeta.driveId && !destMeta.driveId) {
+                return true; // Ambos son de Mi Unidad del usuario
+            }
+        }
+
+        const srcDriveId = srcMeta.driveId;
+        const destDriveId = destMeta ? destMeta.driveId : null;
+        if (srcDriveId && destDriveId && srcDriveId === destDriveId) {
+            return true; // Ambos en la misma Unidad Compartida
+        }
+
+        return false;
+    }
+
+    // --- Event Handlers ---
+    analyzeBtn.onclick = async () => {
+        logOutput.innerHTML = '';
+        setStatus('Analizando...');
+        try {
+            const sourceId = extractId(sourceUrlInput.value);
+            if (!sourceId) {
+                log('Por favor, introduce una URL o ID de origen.');
+                setStatus('En espera');
+                return;
+            }
+            let meta = await getFile(sourceId);
+            if (meta.mimeType === SHORTCUT_MIME) {
+                const targetId = meta.shortcutDetails.targetId;
+                const targetMeta = await getFile(targetId);
+                setType(`Acceso directo a ${targetMeta.mimeType === FOLDER_MIME ? 'Carpeta' : 'Archivo'}`);
+                log(`El enlace es un acceso directo a: "${targetMeta.name}"`);
+            } else {
+                setType(meta.mimeType === FOLDER_MIME ? 'Carpeta' : 'Archivo');
+                log(`Elemento detectado: "${meta.name}"`);
+            }
+            setStatus('Análisis completado');
+        } catch (err) {
+            log(`Error en el análisis: ${err.message || JSON.stringify(err)}`);
+            setStatus('Error en análisis');
+            setType('—');
+        }
+    };
+    
+    copyBtn.onclick = async () => {
+        logOutput.innerHTML = '';
+        setStatus('Preparando copia...');
+        cancelFlag.stop = false;
+        isTaskRunning = true;
+        copyBtn.classList.add('btn-disabled');
+
+        const summary = { filesOk: [], foldersOk: [], failed: [] };
+
+        try {
+            // 1. Validar y normalizar origen
+            let sourceId = extractId(sourceUrlInput.value);
+            if (!sourceId) {
+                log('Por favor, introduce una URL o ID de origen.');
+                setStatus('En espera');
+                return;
+            }
+            let sourceMeta = await getFile(sourceId);
+            if (sourceMeta.mimeType === SHORTCUT_MIME) {
+                log(`Resolviendo acceso directo a: "${sourceMeta.name}"`);
+                sourceId = sourceMeta.shortcutDetails.targetId;
+                sourceMeta = await getFile(sourceId);
+            }
+
+            // 2. Validar y normalizar destino
+            let destId = extractId(destUrlInput.value);
+            let destMeta = null;
+            if (destId) {
+                try {
+                    destMeta = await getFile(destId);
+                    if (destMeta.mimeType !== FOLDER_MIME) {
+                        log('Aviso: El destino no es una carpeta. Se usará "Mi Unidad".');
+                        destId = null;
+                        destMeta = null;
+                    }
+                } catch (e) {
+                    log('Aviso: No se pudo acceder a la carpeta de destino. Se usará "Mi Unidad".');
+                    destId = null;
+                    destMeta = null;
+                }
+            }
+
+            // 3. Chequeo de seguridad: evitar copiar en el mismo espacio
+            if (isSameSpace(sourceMeta, destMeta)) {
+                log('⛔ Operación bloqueada: El origen y el destino están en el mismo espacio de Drive (ej. "Mi Unidad" -> "Mi Unidad").');
+                setStatus('Bloqueada');
+                return;
+            }
+
+            // 4. Iniciar copia
+            if (sourceMeta.mimeType === FOLDER_MIME) {
+                // Copiar carpeta
+                setStatus('Contando elementos...');
+                const { files, folders } = await countTree(sourceId);
+                const totalItems = files + folders + 1; // +1 for root
+                updateProgress(0, totalItems);
+                setStatus('Clonando carpeta...');
+                
+                await copyFolderRecursive(sourceId, destId, summary, totalItems);
+
+            } else {
+                // Copiar archivo
+     
